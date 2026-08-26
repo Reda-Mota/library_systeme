@@ -1,0 +1,125 @@
+import pandas as pd
+import streamlit as st
+from urllib.parse import quote
+import mysql.connector
+
+def init_connection():
+    return mysql.connector.connect(
+        host=st.secrets["database"]["host"],
+        port =st.secrets["database"]["port"],
+        user=st.secrets["database"]["user"],
+        password=st.secrets["database"]["password"],
+        database=st.secrets["database"]["database"]
+    )
+
+mydb = init_connection()
+mycursor = mydb.cursor(dictionary=True)
+
+st.title('Al-Imane Library Systeme')
+
+st.sidebar.header('New Customers +')
+with st.sidebar.form("Add New Customer"):
+    new_id = st.number_input(
+    "Number of liste",
+    min_value=1,
+    step=1)
+    name = st.text_input("Name")
+    phone = st.text_input("Phone:(ex : 21267........)")
+    status = st.selectbox("Status", ["complete", "incomplete"])
+    submitted = st.form_submit_button("Add Customer")
+
+    if submitted:
+        if not name:
+            st.error("Please enter a name.")
+        elif not phone:
+            st.error("Please enter a phone number.")
+        elif not (phone.startswith("212") and len(phone) == 12 and phone.isdigit()):
+            st.error("Please enter a valid phone number.")
+        else:
+            sql = "INSERT INTO customers (id, Name, Phone, Status, Notified) VALUES (%s, %s, %s, %s, 0)"
+            val = (new_id,name, phone, status)
+            mycursor.execute(sql, val)
+            mydb.commit()
+            st.success(f"Customer {name} added successfully!")
+
+st.subheader('The List Is of Customers Who Have Completed Their Registration')
+
+search = st.text_input("Search by Name or Number of liste",
+                       placeholder="Type a name or number of liste to search..."
+                       )
+
+if search:
+     
+        search_sql="""SELECT * FROM customers 
+                  WHERE Status = 'complete'  
+                 AND Notified = 0
+                 AND (Name LIKE %s OR id LIKE %s)
+                 """
+        search_values =f"%{search}%"
+        mycursor.execute(search_sql,
+        (search_values, search_values))
+else:
+    mycursor.execute("""
+        SELECT * FROM customers
+        WHERE Status = 'Complete'
+        AND Notified = 0
+    """)
+
+customer_data = mycursor.fetchall()
+
+if not customer_data:
+    st.success("No customers have completed their registration.")
+else:
+    for customer in customer_data:
+        customer_id = customer['id']
+        name = customer['Name']
+        number = customer['id']
+        phone = customer['Phone']
+
+        message = f"""السلام عليكم {name}،
+        لقد أصبحت الكتب التي طلبتها جاهزة.
+        المرجو الحضور إلى المكتبة لاستلامها.
+        شكراً."""
+
+        whatssap_url = f"https://wa.me/{phone}?text={quote(message)}"
+
+        st.write(f"**{number}. {name}**")
+        st.write('the book is complete and ready to be picked up')
+        # تقسيم المساحة لعمودين لوضع الأزرار بجانب بعضها
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.link_button("Send Message on WhatsApp", whatssap_url)
+            
+        with col2:
+            with st.popover("Delete the Customer 🗑️"):
+                st.warning("Are you sure you want to delete this customer? This action cannot be undone.")
+                
+                col_yes, col_no = st.columns(2)
+                with col_yes:
+                    # تم التصحيح هنا: استخدام customer_id
+                    if st.button("Yes", key=f"yes_del_{customer_id}"):
+                        delete_sql = "DELETE FROM customers WHERE id = %s"
+                        # تم التصحيح هنا أيضاً
+                        mycursor.execute(delete_sql, (customer_id,))
+                        mydb.commit()
+                        st.rerun()
+                        
+                with col_no:
+                    if st.button("No", key=f"no_del_{customer_id}"):
+                        st.rerun()
+
+            if st.button('Notified,', key=f"notify_{customer_id}"):
+                                update_sql = """
+                                     UPDATE customers
+                                    SET Notified = 1
+                                     WHERE id = %s
+                                     """
+
+                                mycursor.execute(update_sql, (customer_id,))
+                                mydb.commit()
+
+                                st.success(f"تم إشعار {name} بنجاح!")
+                                st.rerun()
+                        
+        st.divider()
