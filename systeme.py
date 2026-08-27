@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 from urllib.parse import quote
 import mysql.connector
+from datetime import datetime
 
 def init_connection():
     return mysql.connector.connect(
@@ -42,84 +43,230 @@ with st.sidebar.form("Add New Customer"):
             mydb.commit()
             st.success(f"Customer {name} added successfully!")
 
-st.subheader('The List Is of Customers Who Have Completed Their Registration')
+tab1, tab2, tab3 = st.tabs([
+    "📚 Complete",
+    "⏳ Incomplete",
+    "📜 Historique"
+])
 
-search = st.text_input("Search by Name or Number of liste",
-                       placeholder="Type a name or number of liste to search..."
-                       )
+with tab1:
+    st.subheader("Customers Who Have Completed Their Registration")
 
-if search:
-     
-        search_sql="""SELECT * FROM customers 
-                  WHERE Status = 'complete'  
-                 AND Notified = 0
-                 AND (Name LIKE %s OR id LIKE %s)
-                 """
-        search_values =f"%{search}%"
-        mycursor.execute(search_sql,
-        (search_values, search_values))
-else:
+    search = st.text_input(
+        "Search by Name or Number of liste",
+        placeholder="Type a name or number of liste to search..."
+    )
+
+    if search:
+
+        search_sql = """
+            SELECT * FROM customers
+            WHERE Status = 'complete'
+            AND Notified = 0
+            AND (Name LIKE %s OR id LIKE %s)
+        """
+
+        search_values = f"%{search}%"
+
+        mycursor.execute(
+            search_sql,
+            (search_values, search_values)
+        )
+
+    else:
+
+        mycursor.execute("""
+            SELECT * FROM customers
+            WHERE Status = 'complete'
+            AND Notified = 0
+            ORDER BY id
+        """)
+
+    customer_data = mycursor.fetchall()
+
+    if not customer_data:
+
+        st.success("No customers have completed their registration.")
+
+    else:
+
+        for customer in customer_data:
+
+            customer_id = customer['id']
+            name = customer['Name']
+            number = customer['id']
+            phone = customer['Phone']
+
+            # رسالة WhatsApp
+            message = f"""السلام عليكم {name}،
+لقد أصبحت لائحة الكتب التي طلبتها جاهزة.
+المرجو الحضور إلى المكتبة لاستلامها.
+شكراً."""
+
+            whatssap_url = f"https://wa.me/{phone}?text={quote(message)}"
+
+            st.write(f"**{number}. {name}**")
+            st.write(
+                "the book is complete and ready to be picked up"
+            )
+
+            # =========================
+            # الأزرار
+            # =========================
+
+            col1, col2, col3 = st.columns(3)
+
+            # WhatsApp
+            with col1:
+                st.link_button(
+                    "Send Message on WhatsApp",
+                    whatssap_url
+                )
+
+            # Delete
+            with col2:
+
+                with st.popover("Delete 🗑️"):
+
+                    st.warning(
+                        "Are you sure you want to delete this customer?"
+                    )
+
+                    col_yes, col_no = st.columns(2)
+
+                    with col_yes:
+
+                        if st.button(
+                            "Yes",
+                            key=f"yes_del_{customer_id}"
+                        ):
+
+                            delete_sql = """
+                                DELETE FROM customers
+                                WHERE id = %s
+                            """
+
+                            mycursor.execute(
+                                delete_sql,
+                                (customer_id,)
+                            )
+
+                            mydb.commit()
+                            st.rerun()
+
+                    with col_no:
+
+                        if st.button(
+                            "No",
+                            key=f"no_del_{customer_id}"
+                        ):
+                            st.rerun()
+
+            # Notified
+            with col3:
+
+                if st.button(
+                    "Notified ✓",
+                    key=f"notify_{customer_id}"
+                ):
+
+                    update_sql = """
+                        UPDATE customers
+                        SET Notified = 1,
+                            NotifiedAt = %s
+                        WHERE id = %s
+                    """
+
+                    mycursor.execute(
+                        update_sql,
+                        (datetime.now(), customer_id)
+                    )
+
+                    mydb.commit()
+
+                    st.success(
+                        f"{name} has been notified!"
+                    )
+
+                    st.rerun()
+
+            st.divider()
+with tab2:
+
+    st.subheader("Incomplete Customers")
+
     mycursor.execute("""
         SELECT * FROM customers
-        WHERE Status = 'Complete'
-        AND Notified = 0
+        WHERE Status = 'incomplete'
+        ORDER BY id
     """)
 
-customer_data = mycursor.fetchall()
+    incomplete_data = mycursor.fetchall()
 
-if not customer_data:
-    st.success("No customers have completed their registration.")
-else:
-    for customer in customer_data:
-        customer_id = customer['id']
-        name = customer['Name']
-        number = customer['id']
-        phone = customer['Phone']
+    if not incomplete_data:
+        st.info("No incomplete customers.")
+    else:
 
-        message = f"""السلام عليكم {name}،
-        لقد أصبحت الكتب التي طلبتها جاهزة.
-        المرجو الحضور إلى المكتبة لاستلامها.
-        شكراً."""
+        for customer in incomplete_data:
 
-        whatssap_url = f"https://wa.me/{phone}?text={quote(message)}"
+            customer_id = customer['id']
+            name = customer['Name']
+            phone = customer['Phone']
 
-        st.write(f"**{number}. {name}**")
-        st.write('the book is complete and ready to be picked up')
-        # تقسيم المساحة لعمودين لوضع الأزرار بجانب بعضها
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.link_button("Send Message on WhatsApp", whatssap_url)
-            
-        with col2:
-            with st.popover("Delete the Customer 🗑️"):
-                st.warning("Are you sure you want to delete this customer? This action cannot be undone.")
-                
-                col_yes, col_no = st.columns(2)
-                with col_yes:
-                    # تم التصحيح هنا: استخدام customer_id
-                    if st.button("Yes", key=f"yes_del_{customer_id}"):
-                        delete_sql = "DELETE FROM customers WHERE id = %s"
-                        # تم التصحيح هنا أيضاً
-                        mycursor.execute(delete_sql, (customer_id,))
-                        mydb.commit()
-                        st.rerun()
-                        
-                with col_no:
-                    if st.button("No", key=f"no_del_{customer_id}"):
-                        st.rerun()
+            st.write(f"**{customer_id}. {name}**")
+            st.write("The customer's registration is incomplete.")
 
-            if st.button('Notified,', key=f"notify_{customer_id}"):
-                                update_sql = """
-                                     UPDATE customers
-                                    SET Notified = 1
-                                     WHERE id = %s
-                                     """
+            if st.button(
+                "✓ Complete",
+                key=f"complete_{customer_id}"
+            ):
 
-                                mycursor.execute(update_sql, (customer_id,))
-                                mydb.commit()
+                update_sql = """
+                    UPDATE customers
+                    SET Status = 'complete'
+                    WHERE id = %s
+                """
 
-                                st.success(f"تم إشعار {name} بنجاح!")
-                                st.rerun()
-                        
-        st.divider()
+                mycursor.execute(
+                    update_sql,
+                    (customer_id,)
+                )
+
+                mydb.commit()
+                st.rerun()
+
+            st.divider()
+with tab3:
+
+    st.subheader("📜 Historique")
+
+    mycursor.execute("""
+        SELECT *
+        FROM customers
+        WHERE Notified IS NOT NULL
+        ORDER BY NotifiedAt DESC
+    """)
+
+    history_data = mycursor.fetchall()
+
+    if not history_data:
+        st.info("No notifications have been sent yet.")
+    else:
+
+        for customer in history_data:
+
+            customer_id = customer['id']
+            name = customer['Name']
+            phone = customer['Phone']
+            notified_at = customer['NotifiedAt']
+
+            st.write(f"**{customer_id}. {name}**")
+            st.write(f"📱 {phone}")
+
+            if notified_at:
+                st.write(
+                    f"📅 {notified_at.strftime('%d/%m/%Y')} "
+                    f"🕐 {notified_at.strftime('%H:%M:%S')}"
+                )
+
+            st.divider()
