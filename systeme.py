@@ -3,6 +3,7 @@ import streamlit as st
 from urllib.parse import quote
 import mysql.connector
 from datetime import datetime
+from datetime import timedelta
 
 def init_connection():
     return mysql.connector.connect(
@@ -264,6 +265,7 @@ with tab3:
             st.write(f"📱 {phone}")
 
             if notified_at:
+                notified_at = notified_at + timedelta(hours=1)  # Adjusting for timezone if needed
                 st.write(
                     f"📅 {notified_at.strftime('%d/%m/%Y')} "
                     f"🕐 {notified_at.strftime('%H:%M:%S')}"
