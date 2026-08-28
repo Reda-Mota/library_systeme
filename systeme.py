@@ -28,6 +28,7 @@ with st.sidebar.form("Add New Customer"):
     name = st.text_input("Name")
     phone = st.text_input("Phone:(ex : 21267........)")
     status = st.selectbox("Status", ["complete", "incomplete"])
+    current_price = st.number_input('Current Price', min_value=0.0, step=0.01)
     submitted = st.form_submit_button("Add Customer")
 
     if submitted:
@@ -38,8 +39,8 @@ with st.sidebar.form("Add New Customer"):
         elif not (phone.startswith("212") and len(phone) == 12 and phone.isdigit()):
             st.error("Please enter a valid phone number.")
         else:
-            sql = "INSERT INTO customers (id, Name, Phone, Status, Notified) VALUES (%s, %s, %s, %s, 0)"
-            val = (new_id,name, phone, status)
+            sql = "INSERT INTO customers (id, Name, Phone, Status, Notified , Total_Price) VALUES (%s, %s, %s, %s, 0, %s)"
+            val = (new_id,name, phone, status, current_price)
             mycursor.execute(sql, val)
             mydb.commit()
             st.success(f"Customer {name} added successfully!")
@@ -97,6 +98,8 @@ with tab1:
             name = customer['Name']
             number = customer['id']
             phone = customer['Phone']
+            current_price_db = customer['Total_Price']
+            safe_current_price = float(current_price_db) if current_price_db is not None else 0.0
 
             # رسالة WhatsApp
             message = f"""السلام عليكم {name}،
@@ -115,7 +118,7 @@ with tab1:
             # الأزرار
             # =========================
 
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4= st.columns(4)
 
             # WhatsApp
             with col1:
@@ -191,7 +194,17 @@ with tab1:
 
                     st.rerun()
 
+        # Price Show
+            
+            with col4:
+                st.write("💰 **المجموع الحالي:**")
+                st.write(f"**{safe_current_price} درهم**")
             st.divider()
+
+
+            
+            
+#Incomplet Tab
 with tab2:
 
     st.subheader("Incomplete Customers")
@@ -213,9 +226,14 @@ with tab2:
             customer_id = customer['id']
             name = customer['Name']
             phone = customer['Phone']
+            # Importing db of price :
+            current_price_db = customer['Total_Price']
+            safe_current_price = float(current_price_db) if current_price_db is not None else 0.0
+
 
             st.write(f"**{customer_id}. {name}**")
             st.write("The customer's registration is incomplete.")
+            st.write(f"💰 **المجموع الحالي:** {safe_current_price} درهم")
 
             if st.button(
                 "✓ Complete",
@@ -235,8 +253,26 @@ with tab2:
 
                 mydb.commit()
                 st.rerun()
+ 
 
+            col1 , col2 = st.columns(2)
+            with col1:
+                
+                new_book_price = st.number_input("إضافة ثمن كتاب جديد:", min_value=0.0, step=1.0, key=f"new_price_{customer_id}")
+            with col2:
+                if st.button("➕ تحديث المجموع", key=f"update_btn_{customer_id}"):
+                    safe_current_price = customer['Total_Price'] if customer['Total_Price'] is not None else 0.0
+                    updated_total = safe_current_price + new_book_price
+        
+
+                    update_sql = "UPDATE customers SET Total_Price = %s WHERE id = %s"
+                    mycursor.execute(update_sql, (updated_total, customer_id))
+                    mydb.commit()
+        
+                    st.rerun()
             st.divider()
+
+# Historique tab
 with tab3:
 
     st.subheader("📜 Historique")
