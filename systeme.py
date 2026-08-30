@@ -54,6 +54,8 @@ tab1, tab2, tab3 = st.tabs([
 with tab1:
     st.subheader("Customers Who Have Completed Their Registration")
 
+    # Search Functionality
+
     search = st.text_input(
         "Search by Name or Number of liste",
         placeholder="Type a name or number of liste to search..."
@@ -81,11 +83,12 @@ with tab1:
             SELECT * FROM customers
             WHERE Status = 'complete'
             AND Notified = 0
+            AND phone NOT IN(SELECT Phone FROM customers WHERE Status = 'incomplete')
             ORDER BY id
         """)
 
     customer_data = mycursor.fetchall()
-
+    
     if not customer_data:
 
         st.success("No customers have completed their registration.")
@@ -204,107 +207,141 @@ with tab1:
 
             
             
-#Incomplet Tab
+
+# Incomplet Tab
 with tab2:
 
-    st.subheader("Incomplete Customers")
+    st.subheader("⏳ Incomplete Customers")
 
+    # Fetching data for all brothers if at least one is incomplete
     mycursor.execute("""
         SELECT * FROM customers
-        WHERE Status = 'incomplete'
-        ORDER BY id
+        WHERE Phone IN (SELECT Phone FROM customers WHERE Status = 'incomplete')
+        ORDER BY Phone, id
     """)
 
     incomplete_data = mycursor.fetchall()
 
     if not incomplete_data:
-        st.info("No incomplete customers.")
+        st.info("No incomplete customers found.")
     else:
+        df = pd.DataFrame(incomplete_data)
+        grouped = df.groupby('Phone')
 
-        for customer in incomplete_data:
-
-            customer_id = customer['id']
-            name = customer['Name']
-            phone = customer['Phone']
-            # Importing db of price :
-            current_price_db = customer['Total_Price']
-            safe_current_price = float(current_price_db) if current_price_db is not None else 0.0
-
-
-            st.write(f"**{customer_id}. {name}**")
-            st.write("The customer's registration is incomplete.")
-            st.write(f"💰 **المجموع الحالي:** {safe_current_price} درهم")
-
-            if st.button(
-                "✓ Complete",
-                key=f"complete_{customer_id}"
-            ):
-
-                update_sql = """
-                    UPDATE customers
-                    SET Status = 'complete'
-                    WHERE id = %s
-                """
-
-                mycursor.execute(
-                    update_sql,
-                    (customer_id,)
-                )
-
-                mydb.commit()
-                st.rerun()
- 
-
-            col1 , col2 = st.columns(2)
-            with col1:
+        # Looping through each group (Phone Number)
+        for phone, family_group in grouped:
+            
+            # Check if it is a family or a single customer
+            is_family = len(family_group) > 1
+            family_total_price = 0.0
+            
+            # Show Family Header only if they are a family
+            if is_family:
+                st.markdown(f"###  Family (Phone Number: {phone})")
+            
+            # Looping through individuals
+            for index, brother in family_group.iterrows():
+                customer_id = brother['id']
+                name = brother['Name']
+                status = brother['Status']
                 
-                new_book_price = st.number_input("إضافة ثمن كتاب جديد:", min_value=0.0, step=1.0, key=f"new_price_{customer_id}")
-            with col2:
-                if st.button("➕ تحديث المجموع", key=f"update_btn_{customer_id}"):
-                    safe_current_price = customer['Total_Price'] if customer['Total_Price'] is not None else 0.0
-                    updated_total = safe_current_price + new_book_price
-        
+                # Handling Price
+                current_price_db = brother['Total_Price']
+                safe_price = float(current_price_db) if pd.notna(current_price_db) and current_price_db != "" else 0.0
+                family_total_price += safe_price
+                
+                # Status format
+                status_emoji = "✅ Ready" if status == 'complete' else "⏳ Incomplete"
+                
+                st.write(f"**{customer_id}. {name}** | Status: {status_emoji} | 💰 {safe_price} DH")
+                
+                # ==========================================
+                # Actions: Only visible if the customer is Incomplete
+                # ==========================================
+                if status == 'incomplete':
+                    
+                    if st.button(f"✓ Complete {name}", key=f"complete_{customer_id}"):
+                        update_sql = "UPDATE customers SET Status = 'complete' WHERE id = %s"
+                        mycursor.execute(update_sql, (customer_id,))
+                        mydb.commit()
+                        st.rerun()
 
-                    update_sql = "UPDATE customers SET Total_Price = %s WHERE id = %s"
-                    mycursor.execute(update_sql, (updated_total, customer_id))
-                    mydb.commit()
-        
-                    st.rerun()
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        new_book_price = st.number_input(f"Add New Price for {name}:", min_value=0.0, step=1.0, key=f"new_price_{customer_id}")
+                    with col2:
+                        if st.button("➕ Update Total", key=f"update_btn_{customer_id}"):
+                            updated_total = safe_price + new_book_price
+                            update_sql = "UPDATE customers SET Total_Price = %s WHERE id = %s"
+                            mycursor.execute(update_sql, (updated_total, customer_id))
+                            mydb.commit()
+                            st.rerun()
+                
+                # Small separator between brothers (only for families)
+                if is_family:
+                    st.write("---")
+
+            # Show Total Family Price (only for families)
+            if is_family:
+                st.success(f"💰 **Total Family Price:** {family_total_price} DH")
+            
+            # Main divider between different customers/families
             st.divider()
-
 # Historique tab
 with tab3:
 
     st.subheader("📜 Historique")
 
-    mycursor.execute("""
-        SELECT *
-        FROM customers
-        WHERE Notified IS NOT NULL
-        ORDER BY NotifiedAt DESC
-    """)
+    # 1. مربع البحث
+    search_history = st.text_input(
+        "Search by Name or Phone",
+        placeholder="Type a name or phone number and press Enter...",
+        key="search_history_bar"
+    )
+
+    # 2. تحديد نوع الاستعلام (بحث أم عرض الكل)
+    if search_history:
+        search_sql = """
+            SELECT * FROM customers
+            WHERE NotifiedAt IS NOT NULL
+            AND (Name LIKE %s OR id LIKE %s)
+            ORDER BY NotifiedAt DESC
+        """
+        search_val = f"%{search_history}%"
+        mycursor.execute(search_sql, (search_val, search_val))
+    else:
+        mycursor.execute("""
+            SELECT * FROM customers
+            WHERE NotifiedAt IS NOT NULL
+            ORDER BY NotifiedAt DESC
+        """)
 
     history_data = mycursor.fetchall()
 
+    # 3. عرض البيانات
     if not history_data:
-        st.info("No notifications have been sent yet.")
+        st.info("No records found.")
     else:
-
         for customer in history_data:
-
             customer_id = customer['id']
             name = customer['Name']
             phone = customer['Phone']
             notified_at = customer['NotifiedAt']
+            current_price_db = customer['Total_Price']
+            safe_current_price = float(current_price_db) if current_price_db is not None else 0.0
+
 
             st.write(f"**{customer_id}. {name}**")
             st.write(f"📱 {phone}")
 
             if notified_at:
-                notified_at = notified_at + timedelta(hours=1)  # Adjusting for timezone if needed
+                # تعديل التوقيت إذا لزم الأمر
+                notified_at = notified_at + timedelta(hours=1)  
                 st.write(
                     f"📅 {notified_at.strftime('%d/%m/%Y')} "
                     f"🕐 {notified_at.strftime('%H:%M:%S')}"
                 )
-
+                st.write("💰 **Finale Totale :**")
+                st.write(f"**{safe_current_price}DH**"
+                         )
             st.divider()
